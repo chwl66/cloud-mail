@@ -261,7 +261,7 @@ const emailService = {
 			attachments = [] //附件
 		} = params;
 
-		const { resendTokens, r2Domain, send, domainList } = await settingService.query(c);
+		const { resendTokens, brevoTokens, sendProvider, r2Domain, send, domainList } = await settingService.query(c);
 
 		let { imageDataList, html } = await attService.toImageUrlHtml(c, content);
 
@@ -328,10 +328,13 @@ const emailService = {
 
 		const domain = emailUtils.getDomain(accountRow.email);
 		const resendToken = resendTokens[domain];
+		const brevoToken = brevoTokens[domain];
 		const useCloudflareEmail = !!c.env.email;
+		const useBrevo = sendProvider === settingConst.sendProvider.BREVO;
+		const providerToken = useBrevo ? brevoToken : resendToken;
 
 		//如果接收方存在站外邮箱，又没有发信服务
-		if (!useCloudflareEmail && !resendToken && !allInternal) {
+		if (!useCloudflareEmail && !providerToken && !allInternal) {
 			throw new BizError(t('noSendProvider'));
 		}
 
@@ -357,33 +360,27 @@ const emailService = {
 
 		let sendResult = {};
 
-		//存在站外邮箱时，如果配置了 Cloudflare Email Service 就优先使用，否则使用 Resend
+		//存在站外邮箱时，如果配置了 Cloudflare Email Service 就优先使用，否则根据系统设置使用 Resend 或 Brevo
 		if (!allInternal) {
 
+			const sendParams = {
+				name,
+				accountEmail: accountRow.email,
+				receiveEmail,
+				subject,
+				text,
+				html,
+				attachments: [...imageDataList, ...attachments],
+				sendType,
+				messageId: emailRow.messageId
+			};
+
 			if (useCloudflareEmail) {
-				sendResult = await this.sendByCloudflareEmail(c, {
-					name,
-					accountEmail: accountRow.email,
-					receiveEmail,
-					subject,
-					text,
-					html,
-					attachments: [...imageDataList, ...attachments],
-					sendType,
-					messageId: emailRow.messageId
-				});
+				sendResult = await this.sendByCloudflareEmail(c, sendParams);
+			} else if (useBrevo) {
+				sendResult = await this.sendByBrevo(brevoToken, sendParams);
 			} else {
-				sendResult = await this.sendByResend(resendToken, {
-					name,
-					accountEmail: accountRow.email,
-					receiveEmail,
-					subject,
-					text,
-					html,
-					attachments: [...imageDataList, ...attachments],
-					sendType,
-					messageId: emailRow.messageId
-				});
+				sendResult = await this.sendByResend(resendToken, sendParams);
 			}
 
 		}
@@ -411,7 +408,11 @@ const emailService = {
 		emailData.status = useCloudflareEmail ? emailConst.status.DELIVERED : emailConst.status.SENT;
 		emailData.type = emailConst.type.SEND;
 		emailData.userId = userId;
-		emailData.resendEmailId = data?.id;
+		if (useBrevo && !useCloudflareEmail) {
+			emailData.brevoEmailId = this.normalizeProviderId(data?.id);
+		} else {
+			emailData.resendEmailId = data?.id;
+		}
 
 		const recipient = [];
 
@@ -528,6 +529,88 @@ const emailService = {
 		}
 
 		return await resend.emails.send(sendForm);
+	},
+
+	async sendByBrevo(brevoToken, params) {
+		const { html, text, attachments } = await this.toBrevoContent(params.html, params.text, params.attachments);
+
+		const sendForm = {
+			sender: { name: params.name, email: params.accountEmail },
+			to: params.receiveEmail.map(email => ({ email })),
+			subject: params.subject
+		};
+
+		if (text) {
+			sendForm.textContent = text;
+		}
+
+		if (html) {
+			sendForm.htmlContent = html;
+		}
+
+		if (attachments.length > 0) {
+			sendForm.attachment = attachments;
+		}
+
+		if (params.sendType === 'reply' && params.messageId) {
+			sendForm.headers = {
+				'in-reply-to': params.messageId,
+				'references': params.messageId
+			};
+		}
+
+		const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+			method: 'POST',
+			headers: {
+				'accept': 'application/json',
+				'content-type': 'application/json',
+				'api-key': brevoToken
+			},
+			body: JSON.stringify(sendForm)
+		});
+
+		const data = await response.json().catch(() => ({}));
+
+		if (!response.ok) {
+			return { error: { message: data?.message || `Brevo send failed (${response.status})` } };
+		}
+
+		return { data: { id: data?.messageId } };
+	},
+
+	//Brevo 不支持内嵌 CID 图片，这里把内嵌图片转成 data URI，避免正文图片丢失
+	async toBrevoContent(html, text, attachments = []) {
+		const result = [];
+		let resultHtml = html || '';
+
+		for (const attachment of attachments) {
+			const content = await this.toAttachmentBase64(attachment);
+			if (!content) {
+				continue;
+			}
+
+			const contentType = attachment.contentType || attachment.mimeType || attachment.type || 'application/octet-stream';
+
+			if (attachment.contentId && resultHtml) {
+				const cid = attachment.contentId.replace(/^<|>$/g, '');
+				resultHtml = resultHtml.split(`cid:${cid}`).join(`data:${contentType};base64,${content}`);
+				continue;
+			}
+
+			result.push({
+				name: attachment.filename || 'attachment',
+				content: content
+			});
+		}
+
+		return { html: resultHtml, text, attachments: result };
+	},
+
+	normalizeProviderId(id) {
+		if (!id) {
+			return id;
+		}
+		return String(id).replace(/^<|>$/g, '');
 	},
 
 	async toCloudflareAttachments(attachments) {
@@ -876,6 +959,14 @@ const emailService = {
 			status: status,
 			message: message
 		}).where(eq(email.resendEmailId, resendEmailId)).returning().get();
+	},
+
+	updateEmailStatusByBrevoId(c, params) {
+		const { status, brevoEmailId, message } = params;
+		return orm(c).update(email).set({
+			status: status,
+			message: message
+		}).where(eq(email.brevoEmailId, brevoEmailId)).returning().get();
 	},
 
 	async selectUserEmailCountList(c, userIds, type, del = isDel.NORMAL) {

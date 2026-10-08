@@ -86,6 +86,10 @@ export const settingConst = {
 		OPEN: 0,
 		CLOSE: 1
 	},
+	sendProvider: {
+		RESEND: 0,
+		BREVO: 1
+	},
 	addEmail: {
 		OPEN: 0,
 		CLOSE: 1

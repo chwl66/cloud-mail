@@ -189,16 +189,38 @@
                 </div>
               </div>
               <div class="setting-item">
-                <div><span>{{ setting.hasCfEmail ? $t('cloudflareEmailSending') : $t('resendToken') }}</span></div>
+                <div><span>{{ $t('sendProvider') }}</span></div>
                 <div v-if="setting.hasCfEmail">
-                  <span>{{ $t('enabled') }}</span>
+                  <span>{{ $t('cloudflareEmailSending') }}</span>
                 </div>
                 <div v-else>
+                  <el-select style="width: 130px" size="small" v-model="sendProvider" @change="changeSendProvider">
+                    <el-option label="Resend" :value="0"/>
+                    <el-option label="Brevo" :value="1"/>
+                  </el-select>
+                </div>
+              </div>
+              <div class="setting-item" v-if="!setting.hasCfEmail">
+                <div><span>{{ $t('resendToken') }}</span></div>
+                <div>
                   <el-button class="opt-button" style="margin-top: 0" @click="openResendList" size="small"
                              type="primary">
                     <Icon icon="ic:round-list" width="18" height="18"/>
                   </el-button>
                   <el-button class="opt-button" style="margin-top: 0" @click="openResendForm" size="small"
+                             type="primary">
+                    <Icon icon="material-symbols:add-rounded" width="16" height="16"/>
+                  </el-button>
+                </div>
+              </div>
+              <div class="setting-item" v-if="!setting.hasCfEmail">
+                <div><span>{{ $t('brevoToken') }}</span></div>
+                <div>
+                  <el-button class="opt-button" style="margin-top: 0" @click="openBrevoList" size="small"
+                             type="primary">
+                    <Icon icon="ic:round-list" width="18" height="18"/>
+                  </el-button>
+                  <el-button class="opt-button" style="margin-top: 0" @click="openBrevoForm" size="small"
                              type="primary">
                     <Icon icon="material-symbols:add-rounded" width="16" height="16"/>
                   </el-button>
@@ -516,6 +538,20 @@
           <el-button type="primary" :loading="settingLoading" @click="saveResendToken">{{ $t('save') }}</el-button>
         </form>
       </el-dialog>
+      <el-dialog v-model="brevoTokenFormShow" :title="$t('brevoToken')" width="340" @closed="cleanBrevoTokenForm">
+        <form @submit.prevent>
+          <el-select style="margin-bottom: 15px" v-model="brevoTokenForm.domain" placeholder="Select">
+            <el-option
+                v-for="item in settingStore.domainList"
+                :key="item"
+                :label="item"
+                :value="item"
+            />
+          </el-select>
+          <el-input type="text" :placeholder="$t('addBrevoTokenDesc')" v-model="brevoTokenForm.token" @keyup.enter="saveBrevoToken"/>
+          <el-button type="primary" :loading="settingLoading" @click="saveBrevoToken">{{ $t('save') }}</el-button>
+        </form>
+      </el-dialog>
       <el-dialog v-model="r2DomainShow" :title="$t('addOsDomain')" width="340"
                  @closed="r2DomainInput = setting.r2Domain">
         <form @submit.prevent>
@@ -746,6 +782,14 @@ Authorization: &lt;secret&gt;</pre>
                            :show-overflow-tooltip="true"/>
         </el-table>
       </el-dialog>
+      <el-dialog class="resend-table" v-model="showBrevoList" :title="$t('brevoTokenList')">
+        <el-table :data="brevoList">
+          <el-table-column :min-width="brevoEmailColumnWidth" property="key" :label="$t('domain')"
+                           :show-overflow-tooltip="true"/>
+          <el-table-column :width="brevoTokenColumnWidth" property="value" label="Token" fixed="right"
+                           :show-overflow-tooltip="true"/>
+        </el-table>
+      </el-dialog>
       <el-dialog v-model="regVerifyCountShow" :title="$t('rulesVerifyTitle',{count: regVerifyCount})"
                  @closed="regVerifyCount = setting.regVerifyCount">
         <form @submit.prevent>
@@ -965,6 +1009,8 @@ const accountStore = useAccountStore();
 const userStore = useUserStore();
 const editTitleShow = ref(false)
 const resendTokenFormShow = ref(false)
+const brevoTokenFormShow = ref(false)
+const sendProvider = ref(0)
 const blackFormShow = ref(false)
 const autoCleanShow = ref(false)
 const aiCodeFilterShow = ref(false)
@@ -977,6 +1023,7 @@ const webhookShow = ref(false)
 const forwardRulesShow = ref(false)
 const emailPrefixShow = ref(false)
 const showResendList = ref(false)
+const showBrevoList = ref(false)
 const settingStore = useSettingStore();
 const uiStore = useUiStore();
 const {settings: setting} = storeToRefs(settingStore);
@@ -999,6 +1046,10 @@ const addS3Show = ref(false)
 const addVerifyCountShow = ref(false)
 const regVerifyCountShow = ref(false)
 const resendTokenForm = reactive({
+  domain: '',
+  token: '',
+})
+const brevoTokenForm = reactive({
   domain: '',
   token: '',
 })
@@ -1088,6 +1139,8 @@ const webhookPayloadExample = `{
 }`
 const emailColumnWidth = ref(0)
 const tokenColumnWidth = ref(0)
+const brevoEmailColumnWidth = ref(0)
+const brevoTokenColumnWidth = ref(0)
 const ruleType = ref(0)
 const ruleEmail = ref([])
 const tgMsgFrom = ref('')
@@ -1107,7 +1160,9 @@ function getSettings() {
   settingQuery().then(settingData => {
     setting.value = settingData
     settingStore.domainList = settingData.domainList;
+    sendProvider.value = setting.value.sendProvider;
     resendTokenForm.domain = setting.value.domainList[0]
+    brevoTokenForm.domain = setting.value.domainList[0]
     loginOpacity.value = setting.value.loginOpacity
     minEmailPrefix.value = setting.value.minEmailPrefix
     firstLoading.value = false
@@ -1167,6 +1222,28 @@ const resendList = computed(() => {
 
     const value = list.reduce((a, b) => compareByLengthAndUpperCase(a, b, 'value')).value;
     tokenColumnWidth.value = getTextWidth(value) + 30;
+
+  }
+
+  return list;
+});
+
+const brevoList = computed(() => {
+
+  let list = Object.keys(setting.value.brevoTokens).map(key => {
+    return {
+      key: key,
+      value: setting.value.brevoTokens[key]
+    };
+  })
+
+  if (list.length > 0) {
+
+    const key = list.reduce((a, b) => compareByLengthAndUpperCase(a, b, 'key')).key;
+    brevoEmailColumnWidth.value = getTextWidth(key) + 30;
+
+    const value = list.reduce((a, b) => compareByLengthAndUpperCase(a, b, 'value')).value;
+    brevoTokenColumnWidth.value = getTextWidth(value) + 30;
 
   }
 
@@ -1237,6 +1314,10 @@ function openNoticePopupSetting() {
 
 function openResendList() {
   showResendList.value = true
+}
+
+function openBrevoList() {
+  showBrevoList.value = true
 }
 
 function resetNoticeForm() {
@@ -1648,6 +1729,10 @@ function openResendForm() {
   resendTokenFormShow.value = true
 }
 
+function openBrevoForm() {
+  brevoTokenFormShow.value = true
+}
+
 function openBlackListForm() {
   blackFormShow.value = true
 }
@@ -1665,9 +1750,23 @@ function saveResendToken() {
   editSetting(settingForm)
 }
 
+function saveBrevoToken() {
+  const settingForm = {
+    brevoTokens: {}
+  }
+  const domain = brevoTokenForm.domain.slice(1)
+  settingForm.brevoTokens[domain] = brevoTokenForm.token
+  editSetting(settingForm)
+}
+
+function changeSendProvider(value) {
+  changeField('sendProvider', value)
+}
+
 function backupSetting() {
   const settingForm = {...setting.value}
   delete settingForm.resendTokens
+  delete settingForm.brevoTokens
   delete settingForm.siteKey
   delete settingForm.secretKey
   backup = JSON.stringify(setting.value)
@@ -1675,6 +1774,10 @@ function backupSetting() {
 
 function cleanResendTokenForm() {
   resendTokenForm.token = ''
+}
+
+function cleanBrevoTokenForm() {
+  brevoTokenForm.token = ''
 }
 
 function beforeChange() {
@@ -1692,6 +1795,7 @@ function change(e) {
   delete settingForm.s3SecretKey
   delete settingForm.tgBotToken
   delete settingForm.resendTokens
+  delete settingForm.brevoTokens
   editSetting(settingForm, false)
 }
 
@@ -1732,6 +1836,7 @@ function editSetting(settingForm, refreshStatus = true) {
     editTitleShow.value = false
     r2DomainShow.value = false
     resendTokenFormShow.value = false
+    brevoTokenFormShow.value = false
     turnstileShow.value = false
     tgSettingShow.value = false
     thirdEmailShow.value = false
