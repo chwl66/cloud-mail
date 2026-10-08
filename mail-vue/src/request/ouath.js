@@ -12,6 +12,10 @@ export function oauthGoogleLogin(code, redirectUri) {
     return http.post('/oauth/google/login',{code, redirectUri})
 }
 
+export function oauthNodelocLogin(code, redirectUri) {
+    return http.post('/oauth/nodeloc/login',{code, redirectUri})
+}
+
 export function oauthBindUser(form) {
     return http.put('/oauth/bindUser', form)
 }

@@ -17,6 +17,11 @@ app.post('/oauth/google/login', async (c) => {
 	return c.json(result.ok(loginInfo))
 });
 
+app.post('/oauth/nodeloc/login', async (c) => {
+	const loginInfo = await oauthService.nodelocLogin(c, await c.req.json());
+	return c.json(result.ok(loginInfo))
+});
+
 app.put('/oauth/bindUser', async (c) => {
 	const loginInfo = await oauthService.bindUser(c, await c.req.json());
 	return c.json(result.ok(loginInfo))

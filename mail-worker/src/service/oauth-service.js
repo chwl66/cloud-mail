@@ -179,6 +179,58 @@ const oauthService = {
 		return await this.saveAndLogin(c, userInfo);
 	},
 
+	async nodelocLogin(c, params) {
+
+		const { code, redirectUri } = params;
+
+		const setting = await settingService.query(c);
+		this.assertEnabled(setting, 'nodelocSwitch');
+
+		const reqParams = new URLSearchParams()
+		reqParams.append('client_id', setting.nodelocClientId)
+		reqParams.append('client_secret', setting.nodelocClientSecret)
+		reqParams.append('code', code)
+		reqParams.append('redirect_uri', redirectUri)
+		reqParams.append('grant_type', 'authorization_code')
+
+		const tokenRes = await fetch("https://www.nodeloc.com/oauth-provider/token", {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: reqParams.toString()
+		})
+
+		if (!tokenRes.ok) {
+			throw new BizError(tokenRes.statusText)
+		}
+
+		const token = await tokenRes.json()
+
+		if (token.error) {
+			throw new BizError(token.error_description || token.error)
+		}
+
+		const userRes = await fetch('https://www.nodeloc.com/oauth-provider/userinfo', {
+			headers: {
+				Authorization: 'Bearer ' + token.access_token
+			}
+		});
+
+		if (!userRes.ok) {
+			throw new BizError(userRes.statusText)
+		}
+
+		const userInfo = await userRes.json();
+
+		userInfo.oauthUserId = String(userInfo.id);
+		userInfo.username = userInfo.username;
+		userInfo.name = userInfo.name;
+		userInfo.avatar = userInfo.avatar_url;
+		userInfo.trustLevel = userInfo.trust_level;
+		userInfo.platform = 'nodeloc';
+
+		return await this.saveAndLogin(c, userInfo);
+	},
+
 	async saveAndLogin(c, userInfo) {
 
 		const oauthRow = await this.saveUser(c, userInfo);

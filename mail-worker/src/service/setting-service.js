@@ -247,6 +247,8 @@ const settingService = {
 			githubSwitch: settingRow.githubSwitch,
 			googleClientId: settingRow.googleClientId,
 			googleSwitch: settingRow.googleSwitch,
+			nodelocClientId: settingRow.nodelocClientId,
+			nodelocSwitch: settingRow.nodelocSwitch,
 			minEmailPrefix: settingRow.minEmailPrefix,
 			projectLink: settingRow.projectLink
 		};

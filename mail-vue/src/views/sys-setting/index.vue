@@ -1104,6 +1104,7 @@ const oauthPlatforms = [
   { key: 'google', label: 'Google', icon: 'devicon:google', iconType: 'iconify' },
   { key: 'github', label: 'GitHub', icon: 'codicon:github-inverted', iconType: 'iconify' },
   { key: 'linuxdo', label: 'LinuxDo', icon: '/image/linuxdo.webp', iconType: 'image' },
+  { key: 'nodeloc', label: 'NodeLoc', icon: '/image/nodeloc.png', iconType: 'image' },
 ]
 const oauthSettingShow = ref(false)
 const oauthForm = reactive({
