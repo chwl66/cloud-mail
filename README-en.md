@@ -47,7 +47,7 @@ With only one domain, you can create multiple different email addresses, similar
 
 - **💻 Responsive Design**: Automatically adapts to both desktop and most mobile browsers.
 
-- **📧 Email Sending**: Integrated with Resend / Brevo, supporting bulk email sending and attachments.
+- **📧 Email Sending**: Integrated with Resend / Brevo / SMTP2GO, supporting bulk email sending and attachments.
 
 - **🛡️ Admin Features**: Admin controls for user and email management with RBAC-based access control.
 
@@ -79,7 +79,7 @@ With only one domain, you can create multiple different email addresses, similar
 
 - **UI Framework**: [Element Plus](https://element-plus.org/)
 
-- **Email Service**: [Resend](https://resend.com/) / [Brevo](https://www.brevo.com/)
+- **Email Service**: [Resend](https://resend.com/) / [Brevo](https://www.brevo.com/) / [SMTP2GO](https://www.smtp2go.com/)
 
 - **Cache**: [Cloudflare KV](https://developers.cloudflare.com/kv/)
 

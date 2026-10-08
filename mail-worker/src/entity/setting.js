@@ -27,6 +27,7 @@ export const setting = sqliteTable('setting', {
 	sendProvider: integer('send_provider').default(0).notNull(),
 	resendTokens: text('resend_tokens').default("{}").notNull(),
 	brevoTokens: text('brevo_tokens').default("{}").notNull(),
+	smtp2goTokens: text('smtp2go_tokens').default("{}").notNull(),
 	noticeTitle: text('notice_title').default('').notNull(),
 	noticeContent: text('notice_content').default('').notNull(),
 	noticeType: text('notice_type').default('').notNull(),

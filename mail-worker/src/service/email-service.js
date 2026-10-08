@@ -261,7 +261,7 @@ const emailService = {
 			attachments = [] //附件
 		} = params;
 
-		const { resendTokens, brevoTokens, sendProvider, r2Domain, send, domainList } = await settingService.query(c);
+		const { resendTokens, brevoTokens, smtp2goTokens, sendProvider, r2Domain, send, domainList } = await settingService.query(c);
 
 		let { imageDataList, html } = await attService.toImageUrlHtml(c, content);
 
@@ -329,9 +329,11 @@ const emailService = {
 		const domain = emailUtils.getDomain(accountRow.email);
 		const resendToken = resendTokens[domain];
 		const brevoToken = brevoTokens[domain];
+		const smtp2goToken = smtp2goTokens[domain];
 		const useCloudflareEmail = !!c.env.email;
 		const useBrevo = sendProvider === settingConst.sendProvider.BREVO;
-		const providerToken = useBrevo ? brevoToken : resendToken;
+		const useSmtp2go = sendProvider === settingConst.sendProvider.SMTP2GO;
+		const providerToken = useBrevo ? brevoToken : (useSmtp2go ? smtp2goToken : resendToken);
 
 		//如果接收方存在站外邮箱，又没有发信服务
 		if (!useCloudflareEmail && !providerToken && !allInternal) {
@@ -360,7 +362,7 @@ const emailService = {
 
 		let sendResult = {};
 
-		//存在站外邮箱时，如果配置了 Cloudflare Email Service 就优先使用，否则根据系统设置使用 Resend 或 Brevo
+		//存在站外邮箱时，如果配置了 Cloudflare Email Service 就优先使用，否则根据系统设置使用 Resend、Brevo 或 SMTP2GO
 		if (!allInternal) {
 
 			const sendParams = {
@@ -379,6 +381,8 @@ const emailService = {
 				sendResult = await this.sendByCloudflareEmail(c, sendParams);
 			} else if (useBrevo) {
 				sendResult = await this.sendByBrevo(brevoToken, sendParams);
+			} else if (useSmtp2go) {
+				sendResult = await this.sendBySmtp2go(smtp2goToken, sendParams);
 			} else {
 				sendResult = await this.sendByResend(resendToken, sendParams);
 			}
@@ -410,6 +414,8 @@ const emailService = {
 		emailData.userId = userId;
 		if (useBrevo && !useCloudflareEmail) {
 			emailData.brevoEmailId = this.normalizeProviderId(data?.id);
+		} else if (useSmtp2go && !useCloudflareEmail) {
+			emailData.smtp2goEmailId = this.normalizeProviderId(data?.id);
 		} else {
 			emailData.resendEmailId = data?.id;
 		}
@@ -604,6 +610,98 @@ const emailService = {
 		}
 
 		return { html: resultHtml, text, attachments: result };
+	},
+
+	async sendBySmtp2go(smtp2goToken, params) {
+		const { html, text, attachments, inlines } = await this.toSmtp2goContent(params.html, params.text, params.attachments);
+
+		const sendForm = {
+			api_key: smtp2goToken,
+			sender: `${params.name} <${params.accountEmail}>`,
+			to: [...params.receiveEmail],
+			subject: params.subject
+		};
+
+		if (text) {
+			sendForm.text_body = text;
+		}
+
+		if (html) {
+			sendForm.html_body = html;
+		}
+
+		if (attachments.length > 0) {
+			sendForm.attachments = attachments;
+		}
+
+		if (inlines.length > 0) {
+			sendForm.inlines = inlines;
+		}
+
+		if (params.sendType === 'reply' && params.messageId) {
+			sendForm.custom_headers = [
+				{ header: 'In-Reply-To', value: params.messageId },
+				{ header: 'References', value: params.messageId }
+			];
+		}
+
+		const response = await fetch('https://api.smtp2go.com/v3/email/send', {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify(sendForm)
+		});
+
+		const data = await response.json().catch(() => ({}));
+		const result = data?.data || {};
+
+		if (!response.ok || result.error || result.error_code) {
+			return { error: { message: result.error || result.error_code || `SMTP2GO send failed (${response.status})` } };
+		}
+
+		const failures = Array.isArray(result.failures) ? result.failures : [];
+
+		if (Number(result.failed) > 0 || failures.length > 0) {
+			const failure = failures[0];
+			return { error: { message: failure?.error || failure?.error_code || 'SMTP2GO send failed' } };
+		}
+
+		return { data: { id: result.email_id } };
+	},
+
+	//SMTP2GO 支持通过 inlines 传递内嵌 CID 图片，普通附件放到 attachments
+	async toSmtp2goContent(html, text, attachments = []) {
+		const result = [];
+		const inlines = [];
+
+		for (const attachment of attachments) {
+			const content = await this.toAttachmentBase64(attachment);
+			if (!content) {
+				continue;
+			}
+
+			const contentType = attachment.contentType || attachment.mimeType || attachment.type || 'application/octet-stream';
+			const filename = attachment.filename || 'attachment';
+
+			if (attachment.contentId) {
+				inlines.push({
+					filename: filename,
+					fileblob: content,
+					mimetype: contentType,
+					cid: attachment.contentId.replace(/^<|>$/g, '')
+				});
+				continue;
+			}
+
+			result.push({
+				filename: filename,
+				fileblob: content,
+				mimetype: contentType
+			});
+		}
+
+		return { html, text, attachments: result, inlines };
 	},
 
 	normalizeProviderId(id) {
@@ -967,6 +1065,14 @@ const emailService = {
 			status: status,
 			message: message
 		}).where(eq(email.brevoEmailId, brevoEmailId)).returning().get();
+	},
+
+	updateEmailStatusBySmtp2goId(c, params) {
+		const { status, smtp2goEmailId, message } = params;
+		return orm(c).update(email).set({
+			status: status,
+			message: message
+		}).where(eq(email.smtp2goEmailId, smtp2goEmailId)).returning().get();
 	},
 
 	async selectUserEmailCountList(c, userIds, type, del = isDel.NORMAL) {

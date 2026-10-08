@@ -197,6 +197,7 @@
                   <el-select style="width: 130px" size="small" v-model="sendProvider" @change="changeSendProvider">
                     <el-option label="Resend" :value="0"/>
                     <el-option label="Brevo" :value="1"/>
+                    <el-option label="SMTP2GO" :value="2"/>
                   </el-select>
                 </div>
               </div>
@@ -221,6 +222,19 @@
                     <Icon icon="ic:round-list" width="18" height="18"/>
                   </el-button>
                   <el-button class="opt-button" style="margin-top: 0" @click="openBrevoForm" size="small"
+                             type="primary">
+                    <Icon icon="material-symbols:add-rounded" width="16" height="16"/>
+                  </el-button>
+                </div>
+              </div>
+              <div class="setting-item" v-if="!setting.hasCfEmail">
+                <div><span>{{ $t('smtp2goToken') }}</span></div>
+                <div>
+                  <el-button class="opt-button" style="margin-top: 0" @click="openSmtp2goList" size="small"
+                             type="primary">
+                    <Icon icon="ic:round-list" width="18" height="18"/>
+                  </el-button>
+                  <el-button class="opt-button" style="margin-top: 0" @click="openSmtp2goForm" size="small"
                              type="primary">
                     <Icon icon="material-symbols:add-rounded" width="16" height="16"/>
                   </el-button>
@@ -552,6 +566,20 @@
           <el-button type="primary" :loading="settingLoading" @click="saveBrevoToken">{{ $t('save') }}</el-button>
         </form>
       </el-dialog>
+      <el-dialog v-model="smtp2goTokenFormShow" :title="$t('smtp2goToken')" width="340" @closed="cleanSmtp2goTokenForm">
+        <form @submit.prevent>
+          <el-select style="margin-bottom: 15px" v-model="smtp2goTokenForm.domain" placeholder="Select">
+            <el-option
+                v-for="item in settingStore.domainList"
+                :key="item"
+                :label="item"
+                :value="item"
+            />
+          </el-select>
+          <el-input type="text" :placeholder="$t('addSmtp2goTokenDesc')" v-model="smtp2goTokenForm.token" @keyup.enter="saveSmtp2goToken"/>
+          <el-button type="primary" :loading="settingLoading" @click="saveSmtp2goToken">{{ $t('save') }}</el-button>
+        </form>
+      </el-dialog>
       <el-dialog v-model="r2DomainShow" :title="$t('addOsDomain')" width="340"
                  @closed="r2DomainInput = setting.r2Domain">
         <form @submit.prevent>
@@ -790,6 +818,14 @@ Authorization: &lt;secret&gt;</pre>
                            :show-overflow-tooltip="true"/>
         </el-table>
       </el-dialog>
+      <el-dialog class="resend-table" v-model="showSmtp2goList" :title="$t('smtp2goTokenList')">
+        <el-table :data="smtp2goList">
+          <el-table-column :min-width="smtp2goEmailColumnWidth" property="key" :label="$t('domain')"
+                           :show-overflow-tooltip="true"/>
+          <el-table-column :width="smtp2goTokenColumnWidth" property="value" label="Token" fixed="right"
+                           :show-overflow-tooltip="true"/>
+        </el-table>
+      </el-dialog>
       <el-dialog v-model="regVerifyCountShow" :title="$t('rulesVerifyTitle',{count: regVerifyCount})"
                  @closed="regVerifyCount = setting.regVerifyCount">
         <form @submit.prevent>
@@ -1010,6 +1046,7 @@ const userStore = useUserStore();
 const editTitleShow = ref(false)
 const resendTokenFormShow = ref(false)
 const brevoTokenFormShow = ref(false)
+const smtp2goTokenFormShow = ref(false)
 const sendProvider = ref(0)
 const blackFormShow = ref(false)
 const autoCleanShow = ref(false)
@@ -1024,6 +1061,7 @@ const forwardRulesShow = ref(false)
 const emailPrefixShow = ref(false)
 const showResendList = ref(false)
 const showBrevoList = ref(false)
+const showSmtp2goList = ref(false)
 const settingStore = useSettingStore();
 const uiStore = useUiStore();
 const {settings: setting} = storeToRefs(settingStore);
@@ -1050,6 +1088,10 @@ const resendTokenForm = reactive({
   token: '',
 })
 const brevoTokenForm = reactive({
+  domain: '',
+  token: '',
+})
+const smtp2goTokenForm = reactive({
   domain: '',
   token: '',
 })
@@ -1141,6 +1183,8 @@ const emailColumnWidth = ref(0)
 const tokenColumnWidth = ref(0)
 const brevoEmailColumnWidth = ref(0)
 const brevoTokenColumnWidth = ref(0)
+const smtp2goEmailColumnWidth = ref(0)
+const smtp2goTokenColumnWidth = ref(0)
 const ruleType = ref(0)
 const ruleEmail = ref([])
 const tgMsgFrom = ref('')
@@ -1163,6 +1207,7 @@ function getSettings() {
     sendProvider.value = setting.value.sendProvider;
     resendTokenForm.domain = setting.value.domainList[0]
     brevoTokenForm.domain = setting.value.domainList[0]
+    smtp2goTokenForm.domain = setting.value.domainList[0]
     loginOpacity.value = setting.value.loginOpacity
     minEmailPrefix.value = setting.value.minEmailPrefix
     firstLoading.value = false
@@ -1250,6 +1295,28 @@ const brevoList = computed(() => {
   return list;
 });
 
+const smtp2goList = computed(() => {
+
+  let list = Object.keys(setting.value.smtp2goTokens).map(key => {
+    return {
+      key: key,
+      value: setting.value.smtp2goTokens[key]
+    };
+  })
+
+  if (list.length > 0) {
+
+    const key = list.reduce((a, b) => compareByLengthAndUpperCase(a, b, 'key')).key;
+    smtp2goEmailColumnWidth.value = getTextWidth(key) + 30;
+
+    const value = list.reduce((a, b) => compareByLengthAndUpperCase(a, b, 'value')).value;
+    smtp2goTokenColumnWidth.value = getTextWidth(value) + 30;
+
+  }
+
+  return list;
+});
+
 function getUpdate() {
   if (getUpdateErrorCount > 5 || !getUpdateErrorCount) return
   axios.get('https://api.github.com/repos/maillab/cloud-mail/releases/latest').then(({data}) => {
@@ -1318,6 +1385,10 @@ function openResendList() {
 
 function openBrevoList() {
   showBrevoList.value = true
+}
+
+function openSmtp2goList() {
+  showSmtp2goList.value = true
 }
 
 function resetNoticeForm() {
@@ -1733,6 +1804,10 @@ function openBrevoForm() {
   brevoTokenFormShow.value = true
 }
 
+function openSmtp2goForm() {
+  smtp2goTokenFormShow.value = true
+}
+
 function openBlackListForm() {
   blackFormShow.value = true
 }
@@ -1759,6 +1834,15 @@ function saveBrevoToken() {
   editSetting(settingForm)
 }
 
+function saveSmtp2goToken() {
+  const settingForm = {
+    smtp2goTokens: {}
+  }
+  const domain = smtp2goTokenForm.domain.slice(1)
+  settingForm.smtp2goTokens[domain] = smtp2goTokenForm.token
+  editSetting(settingForm)
+}
+
 function changeSendProvider(value) {
   changeField('sendProvider', value)
 }
@@ -1767,6 +1851,7 @@ function backupSetting() {
   const settingForm = {...setting.value}
   delete settingForm.resendTokens
   delete settingForm.brevoTokens
+  delete settingForm.smtp2goTokens
   delete settingForm.siteKey
   delete settingForm.secretKey
   backup = JSON.stringify(setting.value)
@@ -1778,6 +1863,10 @@ function cleanResendTokenForm() {
 
 function cleanBrevoTokenForm() {
   brevoTokenForm.token = ''
+}
+
+function cleanSmtp2goTokenForm() {
+  smtp2goTokenForm.token = ''
 }
 
 function beforeChange() {
@@ -1796,6 +1885,7 @@ function change(e) {
   delete settingForm.tgBotToken
   delete settingForm.resendTokens
   delete settingForm.brevoTokens
+  delete settingForm.smtp2goTokens
   editSetting(settingForm, false)
 }
 
@@ -1837,6 +1927,7 @@ function editSetting(settingForm, refreshStatus = true) {
     r2DomainShow.value = false
     resendTokenFormShow.value = false
     brevoTokenFormShow.value = false
+    smtp2goTokenFormShow.value = false
     turnstileShow.value = false
     tgSettingShow.value = false
     thirdEmailShow.value = false
