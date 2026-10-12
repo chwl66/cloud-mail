@@ -19,3 +19,11 @@ export function oauthNodelocLogin(code, redirectUri) {
 export function oauthBindUser(form) {
     return http.put('/oauth/bindUser', form)
 }
+
+export function oauthBindAccount(form) {
+    return http.post('/my/oauth/bind', form)
+}
+
+export function oauthBindList() {
+    return http.get('/my/oauth/list')
+}

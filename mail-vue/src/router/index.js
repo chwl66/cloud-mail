@@ -109,7 +109,8 @@ router.beforeEach((to, from, next) => {
         return
     }
 
-    if (token && to.path.startsWith('/login')) {
+    //已登录用户走第三方绑定时需要进入 /login 处理回调
+    if (token && to.path.startsWith('/login') && !sessionStorage.getItem('oauthBindProvider')) {
         return next(from.path)
     }
 

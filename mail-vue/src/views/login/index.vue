@@ -167,7 +167,8 @@ import {cvtR2Url} from "@/utils/convert.js";
 import {loginUserInfo} from "@/request/my.js";
 import {permsToRouter} from "@/perm/perm.js";
 import {useI18n} from "vue-i18n";
-import {oauthBindUser, oauthLinuxDoLogin, oauthGithubLogin, oauthGoogleLogin, oauthNodelocLogin} from "@/request/ouath.js";
+import {oauthBindUser, oauthBindAccount, oauthLinuxDoLogin, oauthGithubLogin, oauthGoogleLogin, oauthNodelocLogin} from "@/request/ouath.js";
+import {oauthKeys, oauthProviderList, oauthAuthorizeUrl} from "@/utils/oauth-utils.js";
 
 const {t} = useI18n();
 const accountStore = useAccountStore();
@@ -181,8 +182,6 @@ const oauthLoading = ref(false);
 const showBindForm = ref(false);
 const show = ref('login')
 
-const oauthKeys = ['linuxdo', 'github', 'google', 'nodeloc']
-
 const oauthProvider = computed(() => {
   const fromState = route.query.state
   if (oauthKeys.includes(fromState)) return fromState
@@ -190,19 +189,14 @@ const oauthProvider = computed(() => {
   return oauthKeys.includes(fromStore) ? fromStore : null
 })
 
-const oauthProviders = computed(() => {
-  const allProviders = [
-    { key: 'google', label: 'Google', icon: 'devicon:google', iconType: 'iconify' },
-    { key: 'github', label: 'GitHub', icon: 'codicon:github-inverted', iconType: 'iconify' },
-    { key: 'linuxdo', label: 'LinuxDo', icon: '/image/linuxdo.webp', iconType: 'image' },
-    { key: 'nodeloc', label: 'NodeLoc', icon: '/image/nodeloc.png', iconType: 'image' },
-  ]
-  return allProviders.filter(p => settingStore.settings[p.key + 'Switch'] === 0)
-})
+const oauthProviders = computed(() =>
+  oauthProviderList.filter(p => settingStore.settings[p.key + 'Switch'] === 0)
+)
 
 const bindForm = reactive({
   email: '',
   oauthUserId: '',
+  platform: '',
   code: ''
 })
 
@@ -288,15 +282,8 @@ const getEmailName = (email) => {
 
 function oauthLogin(provider) {
   const clientId = settingStore.settings[provider + 'ClientId']
-  const redirectUri = encodeURIComponent(window.location.origin + '/login')
   sessionStorage.setItem('oauthProvider', provider)
-  const authorizeUrls = {
-    linuxdo: `https://connect.linux.do/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid+profile+email&state=${provider}`,
-    github: `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=user:email&state=${provider}`,
-    google: `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid+profile+email&state=${provider}`,
-    nodeloc: `https://www.nodeloc.com/oauth-provider/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=openid+profile+email&state=${provider}`,
-  }
-  window.location.href = authorizeUrls[provider]
+  window.location.href = oauthAuthorizeUrl(provider, clientId, window.location.origin + '/login')
 }
 
 const loginFns = {
@@ -315,13 +302,32 @@ async function oauthGetUser() {
   if (!code || !oauthProvider.value) return
 
   const provider = oauthProvider.value
+  const bindMode = sessionStorage.getItem('oauthBindProvider') === provider
   oauthLoading.value = true
   sessionStorage.removeItem('oauthProvider')
+  sessionStorage.removeItem('oauthBindProvider')
   window.history.replaceState({}, '', window.location.origin + window.location.pathname)
+
+  //已登录账号绑定第三方登录：完成授权后回到个人设置，不影响当前登录状态
+  if (bindMode) {
+    oauthBindAccount({ provider, code, redirectUri: window.location.origin + '/login' }).then(() => {
+      oauthLoading.value = false
+      ElMessage({
+        message: t('oauthBindSuccessMsg'),
+        type: 'success',
+        plain: true,
+      })
+      router.replace({ name: 'setting' })
+    }).catch(() => {
+      oauthLoading.value = false
+    })
+    return
+  }
 
   loginFns[provider](code, window.location.origin + '/login').then(data => {
 
     bindForm.oauthUserId = data.userInfo.oauthUserId;
+    bindForm.platform = provider;
 
     if (!data.token) {
       showBindForm.value = true
@@ -390,7 +396,7 @@ function bind() {
 
   }
 
-  const form = {email, oauthUserId: bindForm.oauthUserId, code: bindForm.code}
+  const form = {email, oauthUserId: bindForm.oauthUserId, platform: bindForm.platform, code: bindForm.code}
 
   bindLoading.value = true
   oauthBindUser(form).then(data => {

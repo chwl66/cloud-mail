@@ -29,6 +29,23 @@
           <el-button type="primary" @click="pwdShow = true">{{$t('changePwdBtn')}}</el-button>
         </div>
       </div>
+      <div class="oauth" v-if="oauthProviders.length > 0">
+        <div class="title">{{$t('oauthBind')}}</div>
+        <div class="oauth-list">
+          <div class="oauth-item" v-for="p in oauthProviders" :key="p.key">
+            <div class="oauth-provider">
+              <el-avatar v-if="p.iconType === 'image'" :src="p.icon" :size="20"/>
+              <Icon v-else :icon="p.icon" width="20" height="20"/>
+              <span>{{ p.label }}</span>
+            </div>
+            <div class="oauth-action">
+              <span v-if="boundMap[p.key]" class="oauth-bound-name">{{ boundMap[p.key].username || boundMap[p.key].name }}</span>
+              <el-tag v-if="boundMap[p.key]" type="success" size="small">{{$t('bound')}}</el-tag>
+              <el-button v-else size="small" :loading="bindingProvider === p.key" @click="bindOauth(p.key)">{{$t('bind')}}</el-button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="language">
       <div class="title">{{$t('language')}}</div>
@@ -61,8 +78,11 @@
   </div>
 </template>
 <script setup>
-import {reactive, ref, defineOptions} from 'vue'
+import {computed, onMounted, reactive, ref, defineOptions} from 'vue'
+import {Icon} from "@iconify/vue";
 import {resetPassword, userDelete} from "@/request/my.js";
+import {oauthBindList} from "@/request/ouath.js";
+import {oauthAuthorizeUrl, oauthProviderList} from "@/utils/oauth-utils.js";
 import {useUserStore} from "@/store/user.js";
 import router from "@/router/index.js";
 import {accountSetName} from "@/request/account.js";
@@ -78,6 +98,45 @@ const setPwdLoading = ref(false)
 const setNameShow = ref(false)
 const accountName = ref(null)
 const langSelect = ref(settingStore.lang)
+const bindList = ref([])
+const bindingProvider = ref('')
+
+const oauthProviders = computed(() =>
+    oauthProviderList.filter(p => settingStore.settings[p.key + 'Switch'] === 0)
+)
+
+const boundMap = computed(() => {
+  const map = {}
+  bindList.value.forEach(item => {
+    map[item.platform] = item
+  })
+  return map
+})
+
+onMounted(() => {
+  //清理可能残留的绑定标记（绑定回调统一在登录页处理）
+  sessionStorage.removeItem('oauthBindProvider')
+  loadBindList()
+})
+
+function loadBindList() {
+  oauthBindList().then(data => {
+    bindList.value = data || []
+  }).catch(() => {
+    bindList.value = []
+  })
+}
+
+function bindOauth(provider) {
+
+  const clientId = settingStore.settings[provider + 'ClientId']
+
+  if (!clientId) return
+
+  sessionStorage.setItem('oauthBindProvider', provider)
+  bindingProvider.value = provider
+  window.location.href = oauthAuthorizeUrl(provider, clientId, window.location.origin + '/login')
+}
 
 defineOptions({
   name: 'setting'
@@ -293,6 +352,50 @@ function submitPwd() {
     display: flex;
     flex-direction: column;
     gap: 20px;
+  }
+
+  .oauth {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-bottom: 40px;
+    font-size: 14px;
+
+    .oauth-list {
+      display: grid;
+      gap: 12px;
+      max-width: 460px;
+    }
+
+    .oauth-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 15px;
+      padding: 8px 12px;
+      border: 1px solid var(--el-border-color-light);
+      border-radius: 6px;
+    }
+
+    .oauth-provider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .oauth-action {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .oauth-bound-name {
+      color: var(--regular-text-color);
+      max-width: 140px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
   }
 }
 </style>
