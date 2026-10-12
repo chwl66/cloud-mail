@@ -26,6 +26,7 @@
                 </div>
               </div>
               <div class="receive"><span class="source">{{$t('recipient')}}</span><span class="receive-email">{{  formateReceive(email.recipient) }}</span></div>
+              <div class="receive" v-if="formateReceive(email.cc)"><span class="source">{{$t('cc')}}</span><span class="receive-email">{{ formateReceive(email.cc) }}</span></div>
               <div class="date">
                 <div>{{ formatDetailDate(email.createTime) }}</div>
               </div>
@@ -104,6 +105,7 @@ const email = computed(() => emailStore.contentData.email || {
   content: '',
   text: '',
   recipient: '[]',
+  cc: '[]',
 })
 const showPreview = ref(false)
 const srcList = reactive([])
@@ -200,7 +202,12 @@ function isImage(filename) {
 
 function formateReceive(recipient) {
   if (!recipient) return ''
-  recipient = JSON.parse(recipient)
+  try {
+    recipient = JSON.parse(recipient)
+  } catch (e) {
+    return ''
+  }
+  if (!Array.isArray(recipient)) return ''
   return recipient.map(item => item.address).join(', ')
 }
 

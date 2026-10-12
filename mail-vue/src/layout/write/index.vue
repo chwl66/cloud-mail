@@ -14,7 +14,7 @@
           <Icon icon="material-symbols-light:close-rounded" width="22" height="22"/>
         </div>
       </div>
-      <div class="container">
+      <div class="container" :class="{ 'has-cc': showCc }">
         <el-input-tag  @add-tag="addTagChange" tag-type="primary" @input="inputChange" size="default" v-model="form.receiveEmail" >
           <template #prefix>
             <div class="item-title" >{{ $t('recipient') }}</div>
@@ -38,9 +38,15 @@
             </el-select>
           </template>
           <template #suffix>
-            <div style="display: flex;margin-right: 3px;">
+            <div style="display: flex;margin-right: 3px;align-items: center;gap: 8px;">
+              <span v-if="!showCc" class="cc-toggle" @click.stop="showCc = true">{{ $t('cc') }}</span>
               <Icon icon="fa7-solid:user-plus" width="20" height="20" class="add-contact" @click.stop="openContacts" />
             </div>
+          </template>
+        </el-input-tag>
+        <el-input-tag v-if="showCc" @add-tag="ccAddTagChange" tag-type="primary" size="default" v-model="form.cc" >
+          <template #prefix>
+            <div class="item-title" >{{ $t('cc') }}</div>
           </template>
         </el-input-tag>
         <el-input v-model="form.subject" :placeholder="t('subject')" />
@@ -131,6 +137,7 @@ const accountStore = useAccountStore()
 const editor = ref({})
 const userStore = useUserStore();
 const show = ref(false);
+const showCc = ref(false);
 const percent = ref(0)
 let percentMessage = null
 let sending = false
@@ -141,6 +148,7 @@ const mySelect = ref()
 let selectStatus = false
 const backReply = reactive({
   receiveEmail: [],
+  cc: [],
   subject: '',
   content: '',
   sendType: ''
@@ -148,6 +156,7 @@ const backReply = reactive({
 const form = reactive({
   sendEmail: '',
   receiveEmail: [],
+  cc: [],
   accountId: -1,
   name: '',
   subject: '',
@@ -250,6 +259,21 @@ function addTagChange(val) {
   if (selectStatus && has) openSelect()
 }
 
+function ccAddTagChange(val) {
+
+  const emails = Array.from(new Set(
+      val.split(/[,，]/).map(item => item.trim()).filter(item => item)
+  ));
+
+  form.cc.splice(form.cc.length - 1, 1)
+
+  emails.forEach(email => {
+    if (isEmail(email) && !form.cc.includes(email) && !form.receiveEmail.includes(email)) {
+      form.cc.push(email)
+    }
+  })
+}
+
 function clearContent() {
   ElMessageBox.confirm(t('clearContentConfirm'), {
     confirmButtonText: t('confirm'),
@@ -290,7 +314,7 @@ function chooseFile() {
 
 async function sendEmail() {
 
-  if (form.receiveEmail.length === 0) {
+  if (form.receiveEmail.length === 0 && form.cc.length === 0) {
     ElMessage({
       message: t('emptyRecipientMsg'),
       type: 'error',
@@ -298,6 +322,8 @@ async function sendEmail() {
     })
     return
   }
+
+  form.cc = form.cc.filter(item => !form.receiveEmail.includes(item))
 
   if (!form.subject) {
     ElMessage({
@@ -400,16 +426,19 @@ async function sendEmail() {
 }
 
 function addRecipientRecord() {
+  const recordEmails = [...form.receiveEmail, ...form.cc]
+
   writerStore.sendRecipientRecord = writerStore.sendRecipientRecord.filter(
-      email => !form.receiveEmail.includes(email)
+      email => !recordEmails.includes(email)
   );
 
-  writerStore.sendRecipientRecord.unshift(...form.receiveEmail);
+  writerStore.sendRecipientRecord.unshift(...recordEmails);
   writerStore.sendRecipientRecord = writerStore.sendRecipientRecord.slice(0, 500);
 }
 
 function resetForm() {
   form.receiveEmail = []
+  form.cc = []
   form.subject = ''
   form.content = ''
   form.manyType = null
@@ -417,9 +446,11 @@ function resetForm() {
   form.sendType = ''
   form.emailId = 0
   form.draftId = null
+  showCc.value = false
   backReply.content = ''
   backReply.subject = ''
   backReply.receiveEmail = []
+  backReply.cc = []
   backReply.sendType = ''
   editor.value.clearEditor()
 }
@@ -441,6 +472,16 @@ function openForward(email) {
   form.subject = email.subject
   form.sendType = 'forward'
 
+  //转发时带上原邮件的普通附件
+  form.attachments = (email.attList || []).map(att => ({
+    attId: att.attId,
+    key: att.key,
+    filename: att.filename,
+    size: att.size,
+    contentType: att.mimeType,
+    type: att.mimeType
+  }))
+
   defValue.value = ''
 
   setTimeout(() => {
@@ -453,6 +494,7 @@ function openForward(email) {
       backReply.content = editor.value.getContent()
       backReply.subject = form.subject
       backReply.receiveEmail = form.receiveEmail
+      backReply.cc = [...form.cc]
       backReply.sendType = form.sendType
     })
 
@@ -494,6 +536,7 @@ function openReply(email) {
       backReply.content = editor.value.getContent()
       backReply.subject = form.subject
       backReply.receiveEmail = form.receiveEmail
+      backReply.cc = [...form.cc]
       backReply.sendType = form.sendType
     })
   })
@@ -522,6 +565,8 @@ function open() {
 
 function openDraft(draft) {
   Object.assign(form, {...draft})
+  if (!form.cc) form.cc = []
+  showCc.value = form.cc.length > 0
   defValue.value = ''
   setTimeout(() => defValue.value = form.content)
   show.value = true;
@@ -570,7 +615,8 @@ function close() {
     if (backReply.sendType === 'forward' && form.receiveEmail.length === 0) {
       receiveFlag = true;
     }
-    if (subjectFlag && contentFlag && receiveFlag) {
+    let ccFlag = form.cc.join(',') === backReply.cc.join(',')
+    if (subjectFlag && contentFlag && receiveFlag && ccFlag) {
       resetForm();
       close()
       return;
@@ -694,6 +740,10 @@ function close() {
       grid-template-rows: auto auto 1fr auto;
       gap: 15px;
 
+      &.has-cc {
+        grid-template-rows: auto auto auto 1fr auto;
+      }
+
       .item-title {
       }
 
@@ -767,6 +817,13 @@ function close() {
 
 .add-contact {
   color: var(--regular-text-color)
+}
+
+.cc-toggle {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  user-select: none;
 }
 
 .write-select {

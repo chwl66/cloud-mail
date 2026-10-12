@@ -116,6 +116,7 @@ const en = {
     roleDesc: 'Role',
     noSubject: 'No subject',
     recipient: 'To',
+    cc: 'Cc',
     delivered: 'Delivered',
     complained: 'Complained',
     delayed: 'Delayed',

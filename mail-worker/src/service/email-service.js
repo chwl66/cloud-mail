@@ -23,6 +23,7 @@ import domainUtils from '../utils/domain-uitls';
 import account from "../entity/account";
 import { att } from '../entity/att';
 import telegramService from './telegram-service';
+import r2Service from './r2-service';
 
 const emailService = {
 
@@ -255,6 +256,7 @@ const emailService = {
 			sendType, //发件类型
 			emailId, //邮件id，如果是回复邮件会带
 			receiveEmail, //收件人邮箱
+			cc = [], //抄送人邮箱
 			text, //邮件纯文本
 			content, //邮件内容
 			subject, //邮件标题
@@ -273,8 +275,17 @@ const emailService = {
 		const userRow = await userService.selectById(c, userId);
 		const roleRow = await roleService.selectById(c, userRow.type);
 
+		//抄送人去重并排除已在收件人中的地址
+		cc = (Array.isArray(cc) ? cc : [])
+			.map(item => String(item || '').trim())
+			.filter(item => item && !receiveEmail.includes(item));
+		cc = [...new Set(cc)];
+
+		//实际需要投递的地址（收件人 + 抄送人）
+		const allRecipients = [...receiveEmail, ...cc];
+
 		//判断接收方是不是全部为站内邮箱
-		const allInternal = receiveEmail.every(email => {
+		const allInternal = allRecipients.every(email => {
 			const domain = '@' + emailUtils.getDomain(email);
 			return domainList.includes(domain);
 		});
@@ -301,7 +312,7 @@ const emailService = {
 				if (roleRow.sendType === 'count') throw new BizError(t('totalSendLimit'), 403);
 			}
 
-			if (userRow.sendCount + receiveEmail.length > roleRow.sendCount) {
+			if (userRow.sendCount + allRecipients.length > roleRow.sendCount) {
 				if (roleRow.sendType === 'day') throw new BizError(t('daySendLack'), 403);
 				if (roleRow.sendType === 'count') throw new BizError(t('totalSendLack'), 403);
 			}
@@ -360,6 +371,9 @@ const emailService = {
 
 		}
 
+		//转发邮件时前端只带附件元数据，这里从对象存储取回附件内容
+		attachments = await this.resolveAttachments(c, userId, attachments);
+
 		let sendResult = {};
 
 		//存在站外邮箱时，如果配置了 Cloudflare Email Service 就优先使用，否则根据系统设置使用 Resend、Brevo 或 SMTP2GO
@@ -373,6 +387,7 @@ const emailService = {
 				text,
 				html,
 				attachments: [...imageDataList, ...attachments],
+				cc,
 				sendType,
 				messageId: emailRow.messageId
 			};
@@ -428,6 +443,14 @@ const emailService = {
 
 		emailData.recipient = JSON.stringify(recipient);
 
+		const ccRecipient = [];
+
+		cc.forEach(item => {
+			ccRecipient.push({ address: item, name: '' });
+		});
+
+		emailData.cc = JSON.stringify(ccRecipient);
+
 		if (sendType === 'reply') {
 			emailData.inReplyTo = emailRow.messageId;
 			emailData.relation = emailRow.messageId;
@@ -435,7 +458,7 @@ const emailService = {
 
 		//如果权限有发送次数增加用户发送次数
 		if (roleRow.sendCount && roleRow.sendType !== 'internal') {
-			await userService.incrUserSendCount(c, receiveEmail.length, userId);
+			await userService.incrUserSendCount(c, allRecipients.length, userId);
 		}
 
 		//保存到数据库并返回结果
@@ -462,7 +485,7 @@ const emailService = {
 
 		//如果全是站内接收方，直接写入数据库
 		if (allInternal) {
-			await this.HandleOnSiteEmail(c, receiveEmail, emailResult, attList);
+			await this.HandleOnSiteEmail(c, allRecipients, emailResult, attList);
 		}
 
 		const dateStr = dayjs().format('YYYY-MM-DD');
@@ -470,9 +493,9 @@ const emailService = {
 
 		//记录每天发件次数统计
 		if (!daySendTotal) {
-			await c.env.kv.put(kvConst.SEND_DAY_COUNT + dateStr, JSON.stringify(receiveEmail.length), { expirationTtl: 60 * 60 * 24 });
+			await c.env.kv.put(kvConst.SEND_DAY_COUNT + dateStr, JSON.stringify(allRecipients.length), { expirationTtl: 60 * 60 * 24 });
 		} else  {
-			daySendTotal = Number(daySendTotal) + receiveEmail.length
+			daySendTotal = Number(daySendTotal) + allRecipients.length
 			await c.env.kv.put(kvConst.SEND_DAY_COUNT + dateStr, JSON.stringify(daySendTotal), { expirationTtl: 60 * 60 * 24 });
 		}
 
@@ -497,6 +520,10 @@ const emailService = {
 		const attachments = await this.toCloudflareAttachments(params.attachments);
 		if (attachments.length > 0) {
 			sendForm.attachments = attachments;
+		}
+
+		if (params.cc?.length > 0) {
+			sendForm.cc = [...params.cc];
 		}
 
 		if (params.sendType === 'reply' && params.messageId) {
@@ -527,6 +554,10 @@ const emailService = {
 			attachments: await this.toResendAttachments(params.attachments)
 		};
 
+		if (params.cc?.length > 0) {
+			sendForm.cc = [...params.cc];
+		}
+
 		if (params.sendType === 'reply') {
 			sendForm.headers = {
 				'in-reply-to': params.messageId,
@@ -556,6 +587,10 @@ const emailService = {
 
 		if (attachments.length > 0) {
 			sendForm.attachment = attachments;
+		}
+
+		if (params.cc?.length > 0) {
+			sendForm.cc = params.cc.map(email => ({ email }));
 		}
 
 		if (params.sendType === 'reply' && params.messageId) {
@@ -636,6 +671,10 @@ const emailService = {
 
 		if (inlines.length > 0) {
 			sendForm.inlines = inlines;
+		}
+
+		if (params.cc?.length > 0) {
+			sendForm.cc = [...params.cc];
 		}
 
 		if (params.sendType === 'reply' && params.messageId) {
@@ -759,6 +798,78 @@ const emailService = {
 			}
 
 			result.push({ ...attachment, content });
+		}
+
+		return result;
+	},
+
+	//解析附件：带 content 的为前端上传的附件，否则按 attId 从对象存储取回（用于转发带附件）
+	async resolveAttachments(c, userId, attachments = []) {
+		if (!attachments?.length) {
+			return [];
+		}
+
+		const result = [];
+
+		for (const attachment of attachments) {
+
+			if (attachment.content) {
+				result.push(attachment);
+				continue;
+			}
+
+			if (!attachment.attId && !attachment.key) {
+				continue;
+			}
+
+			let key = attachment.key;
+			let filename = attachment.filename;
+			let mimeType = attachment.mimeType || attachment.contentType || attachment.type;
+			let size = attachment.size;
+
+			//校验附件归属，避免转发他人附件
+			if (attachment.attId) {
+				const attRow = await orm(c).select().from(att).where(
+					and(
+						eq(att.attId, Number(attachment.attId)),
+						eq(att.userId, userId))
+				).get();
+
+				if (!attRow) {
+					continue;
+				}
+
+				key = attRow.key;
+				filename = filename || attRow.filename;
+				mimeType = mimeType || attRow.mimeType;
+				size = size ?? attRow.size;
+			}
+
+			if (!key) {
+				continue;
+			}
+
+			const obj = await r2Service.getObj(c, key);
+
+			if (!obj) {
+				continue;
+			}
+
+			const arrayBuffer = obj instanceof ArrayBuffer ? obj : await obj.arrayBuffer();
+			const content = await this.toAttachmentBase64({ content: arrayBuffer });
+
+			if (!content) {
+				continue;
+			}
+
+			result.push({
+				key,
+				filename: filename || 'attachment',
+				size: size ?? arrayBuffer.byteLength,
+				type: mimeType || 'application/octet-stream',
+				contentType: mimeType || 'application/octet-stream',
+				content
+			});
 		}
 
 		return result;

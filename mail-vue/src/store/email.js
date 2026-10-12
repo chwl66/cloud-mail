@@ -64,6 +64,7 @@ export const useEmailStore = defineStore('email', {
                 text: '',
                 attList: [],
                 recipient: email?.recipient || '[]',
+                cc: email?.cc || '[]',
             }
         },
         markListRead(emailId) {
