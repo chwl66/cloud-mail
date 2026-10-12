@@ -47,7 +47,7 @@ With only one domain, you can create multiple different email addresses, similar
 
 - **💻 Responsive Design**: Automatically adapts to both desktop and most mobile browsers.
 
-- **📧 Email Sending**: Integrated with Resend / Brevo / SMTP2GO, supporting bulk email sending and attachments.
+- **📧 Email Sending**: Integrated with Resend / Brevo / SMTP2GO, supporting bulk sending, multiple CC recipients, inline images and attachments, and forwarding that preserves the original attachments.
 
 - **🛡️ Admin Features**: Admin controls for user and email management with RBAC-based access control.
 
@@ -64,6 +64,8 @@ With only one domain, you can create multiple different email addresses, similar
 - **🎨 Personalization**: Customize website title, login background, and transparency.
 
 - **🤖 CAPTCHA**: Integrated with Turnstile CAPTCHA to prevent automated registration.
+
+- **🔗 Third-Party Login**: OAuth2 login via LinuxDo / GitHub / Google / NodeLoc, and registered accounts can link third-party accounts in personal settings.
 
 - **📜 More Features**: Under development...
 

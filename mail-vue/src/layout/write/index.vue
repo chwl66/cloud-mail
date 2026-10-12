@@ -15,7 +15,7 @@
         </div>
       </div>
       <div class="container" :class="{ 'has-cc': showCc }">
-        <el-input-tag  @add-tag="addTagChange" tag-type="primary" @input="inputChange" size="default" v-model="form.receiveEmail" >
+        <el-input-tag  @add-tag="addTagChange" tag-type="primary" @input="inputChange" @paste="pasteEmails($event, 'to')" size="default" v-model="form.receiveEmail" >
           <template #prefix>
             <div class="item-title" >{{ $t('recipient') }}</div>
             <el-select
@@ -44,7 +44,7 @@
             </div>
           </template>
         </el-input-tag>
-        <el-input-tag v-if="showCc" @add-tag="ccAddTagChange" tag-type="primary" size="default" v-model="form.cc" >
+        <el-input-tag v-if="showCc" @add-tag="ccAddTagChange" @paste="pasteEmails($event, 'cc')" tag-type="primary" size="default" v-model="form.cc" >
           <template #prefix>
             <div class="item-title" >{{ $t('cc') }}</div>
           </template>
@@ -241,11 +241,16 @@ function inputChange(value) {
 
 }
 
+//按逗号、分号、空格、换行等分隔符拆分出多个邮箱地址并去重
+function splitEmails(value) {
+  return Array.from(new Set(
+      String(value || '').split(/[,，;；\s]+/).map(item => item.trim()).filter(item => item)
+  ));
+}
+
 function addTagChange(val) {
 
-  const emails = Array.from(new Set(
-      val.split(/[,，]/).map(item => item.trim()).filter(item => item)
-  ));
+  const emails = splitEmails(val)
 
   form.receiveEmail.splice(form.receiveEmail.length - 1, 1)
 
@@ -256,14 +261,17 @@ function addTagChange(val) {
       has = true
     }
   })
+
+  if (has) {
+    form.cc = form.cc.filter(item => !form.receiveEmail.includes(item))
+  }
+
   if (selectStatus && has) openSelect()
 }
 
 function ccAddTagChange(val) {
 
-  const emails = Array.from(new Set(
-      val.split(/[,，]/).map(item => item.trim()).filter(item => item)
-  ));
+  const emails = splitEmails(val)
 
   form.cc.splice(form.cc.length - 1, 1)
 
@@ -272,6 +280,37 @@ function ccAddTagChange(val) {
       form.cc.push(email)
     }
   })
+}
+
+//粘贴时可能一次带入多个地址（含换行），单行输入框会吞掉换行，这里直接解析剪贴板文本
+function pasteEmails(event, type) {
+
+  const text = event.clipboardData?.getData('text') ?? ''
+
+  if (!text || !/[,\uFF0C;\uFF1B\s]/.test(text)) return
+
+  const emails = splitEmails(text).filter(email => isEmail(email))
+
+  if (emails.length === 0) return
+
+  event.preventDefault()
+
+  if (type === 'cc') {
+    emails.forEach(email => {
+      if (!form.cc.includes(email) && !form.receiveEmail.includes(email)) {
+        form.cc.push(email)
+      }
+    })
+    return
+  }
+
+  emails.forEach(email => {
+    if (!form.receiveEmail.includes(email)) {
+      form.receiveEmail.push(email)
+    }
+  })
+
+  form.cc = form.cc.filter(item => !form.receiveEmail.includes(item))
 }
 
 function clearContent() {
