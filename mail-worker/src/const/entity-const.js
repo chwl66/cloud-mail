@@ -89,7 +89,8 @@ export const settingConst = {
 	sendProvider: {
 		RESEND: 0,
 		BREVO: 1,
-		SMTP2GO: 2
+		SMTP2GO: 2,
+		SENDFLARE: 3
 	},
 	addEmail: {
 		OPEN: 0,

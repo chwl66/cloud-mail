@@ -12,6 +12,7 @@ import '../api/r2-api';
 import '../api/resend-api';
 import '../api/brevo-api';
 import '../api/smtp2go-api';
+import '../api/sendflare-api';
 import '../api/user-api';
 import '../api/my-api';
 import '../api/role-api'

@@ -263,7 +263,7 @@ const emailService = {
 			attachments = [] //附件
 		} = params;
 
-		const { resendTokens, brevoTokens, smtp2goTokens, sendProvider, r2Domain, send, domainList } = await settingService.query(c);
+		const { resendTokens, brevoTokens, smtp2goTokens, sendflareTokens, sendProvider, r2Domain, send, domainList } = await settingService.query(c);
 
 		let { imageDataList, html } = await attService.toImageUrlHtml(c, content);
 
@@ -341,10 +341,12 @@ const emailService = {
 		const resendToken = resendTokens[domain];
 		const brevoToken = brevoTokens[domain];
 		const smtp2goToken = smtp2goTokens[domain];
+		const sendflareToken = sendflareTokens[domain];
 		const useCloudflareEmail = !!c.env.email;
 		const useBrevo = sendProvider === settingConst.sendProvider.BREVO;
 		const useSmtp2go = sendProvider === settingConst.sendProvider.SMTP2GO;
-		const providerToken = useBrevo ? brevoToken : (useSmtp2go ? smtp2goToken : resendToken);
+		const useSendflare = sendProvider === settingConst.sendProvider.SENDFLARE;
+		const providerToken = useBrevo ? brevoToken : (useSmtp2go ? smtp2goToken : (useSendflare ? sendflareToken : resendToken));
 
 		//如果接收方存在站外邮箱，又没有发信服务
 		if (!useCloudflareEmail && !providerToken && !allInternal) {
@@ -376,7 +378,7 @@ const emailService = {
 
 		let sendResult = {};
 
-		//存在站外邮箱时，如果配置了 Cloudflare Email Service 就优先使用，否则根据系统设置使用 Resend、Brevo 或 SMTP2GO
+		//存在站外邮箱时，如果配置了 Cloudflare Email Service 就优先使用，否则根据系统设置使用 Resend、Brevo、SMTP2GO 或 Sendflare
 		if (!allInternal) {
 
 			const sendParams = {
@@ -398,6 +400,8 @@ const emailService = {
 				sendResult = await this.sendByBrevo(brevoToken, sendParams);
 			} else if (useSmtp2go) {
 				sendResult = await this.sendBySmtp2go(smtp2goToken, sendParams);
+			} else if (useSendflare) {
+				sendResult = await this.sendBySendflare(sendflareToken, sendParams);
 			} else {
 				sendResult = await this.sendByResend(resendToken, sendParams);
 			}
@@ -431,6 +435,8 @@ const emailService = {
 			emailData.brevoEmailId = this.normalizeProviderId(data?.id);
 		} else if (useSmtp2go && !useCloudflareEmail) {
 			emailData.smtp2goEmailId = this.normalizeProviderId(data?.id);
+		} else if (useSendflare && !useCloudflareEmail) {
+			emailData.sendflareEmailId = this.normalizeProviderId(data?.id);
 		} else {
 			emailData.resendEmailId = data?.id;
 		}
@@ -741,6 +747,65 @@ const emailService = {
 		}
 
 		return { html, text, attachments: result, inlines };
+	},
+
+	async sendBySendflare(sendflareToken, params) {
+
+		//Sendflare 的发送接口不支持附件及内嵌图片，带附件时直接报错避免附件被静默丢弃
+		if (params.attachments?.length > 0) {
+			return { error: { message: t('sendflareNoAttachment') } };
+		}
+
+		const sendForm = {
+			from: params.name ? `${params.name} <${params.accountEmail}>` : params.accountEmail,
+			subject: params.subject,
+			body: params.html || params.text || ''
+		};
+
+		if (params.cc?.length > 0) {
+			sendForm.cc = [...params.cc];
+		}
+
+		if (params.sendType === 'reply' && params.messageId) {
+			sendForm.header = {
+				'In-Reply-To': params.messageId,
+				'References': params.messageId
+			};
+		}
+
+		//Sendflare 单次发送只支持一个收件人，多个收件人时使用批量发送逐个投递
+		const batch = params.receiveEmail.length > 1;
+
+		if (batch) {
+			sendForm.to = [...params.receiveEmail];
+		} else {
+			sendForm.to = params.receiveEmail[0];
+		}
+
+		const response = await fetch(`https://api.sendflare.com/v1/${batch ? 'batchSend' : 'send'}`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json; charset=utf-8',
+				'Authorization': `Bearer ${sendflareToken}`
+			},
+			body: JSON.stringify(sendForm)
+		});
+
+		const data = await response.json().catch(() => ({}));
+
+		if (!response.ok || data?.success === false || (data?.code !== undefined && data.code !== 0)) {
+			return { error: { message: data?.message || `Sendflare send failed (${response.status})` } };
+		}
+
+		const result = data?.data;
+
+		//单个发送返回 { emailId }，批量发送返回 emailId 数组，统一以逗号拼接保存
+		if (batch) {
+			const ids = Array.isArray(result) ? result : [];
+			return { data: { id: ids.join(',') } };
+		}
+
+		return { data: { id: result?.emailId || result?.emilId } };
 	},
 
 	normalizeProviderId(id) {
@@ -1184,6 +1249,15 @@ const emailService = {
 			status: status,
 			message: message
 		}).where(eq(email.smtp2goEmailId, smtp2goEmailId)).returning().get();
+	},
+
+	updateEmailStatusBySendflareId(c, params) {
+		const { status, sendflareEmailId, message } = params;
+		//批量发送会把多个 emailId 以逗号拼接保存，这里用模糊匹配定位邮件
+		return orm(c).update(email).set({
+			status: status,
+			message: message
+		}).where(like(email.sendflareEmailId, `%${sendflareEmailId}%`)).returning().get();
 	},
 
 	async selectUserEmailCountList(c, userIds, type, del = isDel.NORMAL) {

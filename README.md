@@ -52,7 +52,7 @@
 
 - **💻 响应式设计**：响应式布局自动适配PC和大部分手机端浏览器
 
-- **📧 邮件发送**：集成Resend / Brevo / SMTP2GO发送邮件，支持群发与多地址抄送（CC），内嵌图片和附件发送，转发时可携带原邮件附件，发送状态查看
+- **📧 邮件发送**：集成Resend / Brevo / SMTP2GO / Sendflare发送邮件，支持群发与多地址抄送（CC），内嵌图片和附件发送，转发时可携带原邮件附件，发送状态查看
 
 - **🛡️ 管理员功能**：可以对用户，邮件进行管理，RABC权限控制对功能及使用资源限制
 
@@ -88,7 +88,7 @@
 
 - **UI框架**：[Element Plus](https://element-plus.org/) 
 
-- **邮件推送：** [Resend](https://resend.com/) / [Brevo](https://www.brevo.com/) / [SMTP2GO](https://www.smtp2go.com/)
+- **邮件推送：** [Resend](https://resend.com/) / [Brevo](https://www.brevo.com/) / [SMTP2GO](https://www.smtp2go.com/) / [Sendflare](https://sendflare.com/)
 
 - **缓存**：[Cloudflare KV](https://developers.cloudflare.com/kv/)
 

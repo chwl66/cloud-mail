@@ -198,6 +198,7 @@
                     <el-option label="Resend" :value="0"/>
                     <el-option label="Brevo" :value="1"/>
                     <el-option label="SMTP2GO" :value="2"/>
+                    <el-option label="Sendflare" :value="3"/>
                   </el-select>
                 </div>
               </div>
@@ -235,6 +236,19 @@
                     <Icon icon="ic:round-list" width="18" height="18"/>
                   </el-button>
                   <el-button class="opt-button" style="margin-top: 0" @click="openSmtp2goForm" size="small"
+                             type="primary">
+                    <Icon icon="material-symbols:add-rounded" width="16" height="16"/>
+                  </el-button>
+                </div>
+              </div>
+              <div class="setting-item" v-if="!setting.hasCfEmail">
+                <div><span>{{ $t('sendflareToken') }}</span></div>
+                <div>
+                  <el-button class="opt-button" style="margin-top: 0" @click="openSendflareList" size="small"
+                             type="primary">
+                    <Icon icon="ic:round-list" width="18" height="18"/>
+                  </el-button>
+                  <el-button class="opt-button" style="margin-top: 0" @click="openSendflareForm" size="small"
                              type="primary">
                     <Icon icon="material-symbols:add-rounded" width="16" height="16"/>
                   </el-button>
@@ -580,6 +594,20 @@
           <el-button type="primary" :loading="settingLoading" @click="saveSmtp2goToken">{{ $t('save') }}</el-button>
         </form>
       </el-dialog>
+      <el-dialog v-model="sendflareTokenFormShow" :title="$t('sendflareToken')" width="340" @closed="cleanSendflareTokenForm">
+        <form @submit.prevent>
+          <el-select style="margin-bottom: 15px" v-model="sendflareTokenForm.domain" placeholder="Select">
+            <el-option
+                v-for="item in settingStore.domainList"
+                :key="item"
+                :label="item"
+                :value="item"
+            />
+          </el-select>
+          <el-input type="text" :placeholder="$t('addSendflareTokenDesc')" v-model="sendflareTokenForm.token" @keyup.enter="saveSendflareToken"/>
+          <el-button type="primary" :loading="settingLoading" @click="saveSendflareToken">{{ $t('save') }}</el-button>
+        </form>
+      </el-dialog>
       <el-dialog v-model="r2DomainShow" :title="$t('addOsDomain')" width="340"
                  @closed="r2DomainInput = setting.r2Domain">
         <form @submit.prevent>
@@ -826,6 +854,14 @@ Authorization: &lt;secret&gt;</pre>
                            :show-overflow-tooltip="true"/>
         </el-table>
       </el-dialog>
+      <el-dialog class="resend-table" v-model="showSendflareList" :title="$t('sendflareTokenList')">
+        <el-table :data="sendflareList">
+          <el-table-column :min-width="sendflareEmailColumnWidth" property="key" :label="$t('domain')"
+                           :show-overflow-tooltip="true"/>
+          <el-table-column :width="sendflareTokenColumnWidth" property="value" label="Token" fixed="right"
+                           :show-overflow-tooltip="true"/>
+        </el-table>
+      </el-dialog>
       <el-dialog v-model="regVerifyCountShow" :title="$t('rulesVerifyTitle',{count: regVerifyCount})"
                  @closed="regVerifyCount = setting.regVerifyCount">
         <form @submit.prevent>
@@ -1047,6 +1083,7 @@ const editTitleShow = ref(false)
 const resendTokenFormShow = ref(false)
 const brevoTokenFormShow = ref(false)
 const smtp2goTokenFormShow = ref(false)
+const sendflareTokenFormShow = ref(false)
 const sendProvider = ref(0)
 const blackFormShow = ref(false)
 const autoCleanShow = ref(false)
@@ -1062,6 +1099,7 @@ const emailPrefixShow = ref(false)
 const showResendList = ref(false)
 const showBrevoList = ref(false)
 const showSmtp2goList = ref(false)
+const showSendflareList = ref(false)
 const settingStore = useSettingStore();
 const uiStore = useUiStore();
 const {settings: setting} = storeToRefs(settingStore);
@@ -1092,6 +1130,10 @@ const brevoTokenForm = reactive({
   token: '',
 })
 const smtp2goTokenForm = reactive({
+  domain: '',
+  token: '',
+})
+const sendflareTokenForm = reactive({
   domain: '',
   token: '',
 })
@@ -1186,6 +1228,8 @@ const brevoEmailColumnWidth = ref(0)
 const brevoTokenColumnWidth = ref(0)
 const smtp2goEmailColumnWidth = ref(0)
 const smtp2goTokenColumnWidth = ref(0)
+const sendflareEmailColumnWidth = ref(0)
+const sendflareTokenColumnWidth = ref(0)
 const ruleType = ref(0)
 const ruleEmail = ref([])
 const tgMsgFrom = ref('')
@@ -1209,6 +1253,7 @@ function getSettings() {
     resendTokenForm.domain = setting.value.domainList[0]
     brevoTokenForm.domain = setting.value.domainList[0]
     smtp2goTokenForm.domain = setting.value.domainList[0]
+    sendflareTokenForm.domain = setting.value.domainList[0]
     loginOpacity.value = setting.value.loginOpacity
     minEmailPrefix.value = setting.value.minEmailPrefix
     firstLoading.value = false
@@ -1318,6 +1363,28 @@ const smtp2goList = computed(() => {
   return list;
 });
 
+const sendflareList = computed(() => {
+
+  let list = Object.keys(setting.value.sendflareTokens).map(key => {
+    return {
+      key: key,
+      value: setting.value.sendflareTokens[key]
+    };
+  })
+
+  if (list.length > 0) {
+
+    const key = list.reduce((a, b) => compareByLengthAndUpperCase(a, b, 'key')).key;
+    sendflareEmailColumnWidth.value = getTextWidth(key) + 30;
+
+    const value = list.reduce((a, b) => compareByLengthAndUpperCase(a, b, 'value')).value;
+    sendflareTokenColumnWidth.value = getTextWidth(value) + 30;
+
+  }
+
+  return list;
+});
+
 function getUpdate() {
   if (getUpdateErrorCount > 5 || !getUpdateErrorCount) return
   axios.get('https://api.github.com/repos/maillab/cloud-mail/releases/latest').then(({data}) => {
@@ -1390,6 +1457,10 @@ function openBrevoList() {
 
 function openSmtp2goList() {
   showSmtp2goList.value = true
+}
+
+function openSendflareList() {
+  showSendflareList.value = true
 }
 
 function resetNoticeForm() {
@@ -1809,6 +1880,10 @@ function openSmtp2goForm() {
   smtp2goTokenFormShow.value = true
 }
 
+function openSendflareForm() {
+  sendflareTokenFormShow.value = true
+}
+
 function openBlackListForm() {
   blackFormShow.value = true
 }
@@ -1844,6 +1919,15 @@ function saveSmtp2goToken() {
   editSetting(settingForm)
 }
 
+function saveSendflareToken() {
+  const settingForm = {
+    sendflareTokens: {}
+  }
+  const domain = sendflareTokenForm.domain.slice(1)
+  settingForm.sendflareTokens[domain] = sendflareTokenForm.token
+  editSetting(settingForm)
+}
+
 function changeSendProvider(value) {
   changeField('sendProvider', value)
 }
@@ -1853,6 +1937,7 @@ function backupSetting() {
   delete settingForm.resendTokens
   delete settingForm.brevoTokens
   delete settingForm.smtp2goTokens
+  delete settingForm.sendflareTokens
   delete settingForm.siteKey
   delete settingForm.secretKey
   backup = JSON.stringify(setting.value)
@@ -1868,6 +1953,10 @@ function cleanBrevoTokenForm() {
 
 function cleanSmtp2goTokenForm() {
   smtp2goTokenForm.token = ''
+}
+
+function cleanSendflareTokenForm() {
+  sendflareTokenForm.token = ''
 }
 
 function beforeChange() {
@@ -1887,6 +1976,7 @@ function change(e) {
   delete settingForm.resendTokens
   delete settingForm.brevoTokens
   delete settingForm.smtp2goTokens
+  delete settingForm.sendflareTokens
   editSetting(settingForm, false)
 }
 
@@ -1929,6 +2019,7 @@ function editSetting(settingForm, refreshStatus = true) {
     resendTokenFormShow.value = false
     brevoTokenFormShow.value = false
     smtp2goTokenFormShow.value = false
+    sendflareTokenFormShow.value = false
     turnstileShow.value = false
     tgSettingShow.value = false
     thirdEmailShow.value = false
