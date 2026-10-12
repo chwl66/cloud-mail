@@ -18,7 +18,7 @@ const settingService = {
 		settingRow.resendTokens = JSON.parse(settingRow.resendTokens);
 		settingRow.brevoTokens = JSON.parse(settingRow.brevoTokens);
 		settingRow.smtp2goTokens = JSON.parse(settingRow.smtp2goTokens);
-		settingRow.sendflareTokens = JSON.parse(settingRow.sendflareTokens);
+		settingRow.sendflareTokens = JSON.parse(settingRow.sendflareTokens || '{}');
 		c.set('setting', settingRow);
 		await c.env.kv.put(KvConst.SETTING, JSON.stringify(settingRow));
 	},
@@ -64,6 +64,12 @@ const settingService = {
 		setting.projectLink = projectLink;
 
 		setting.emailPrefixFilter = setting.emailPrefixFilter.split(",").filter(Boolean);
+
+		//历史 KV 缓存可能缺少新增发信服务商的 token 字段，这里兜底避免读取时报错
+		setting.resendTokens = setting.resendTokens || {};
+		setting.brevoTokens = setting.brevoTokens || {};
+		setting.smtp2goTokens = setting.smtp2goTokens || {};
+		setting.sendflareTokens = setting.sendflareTokens || {};
 
 		c.set?.('setting', setting);
 		return setting;

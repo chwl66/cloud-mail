@@ -1365,7 +1365,7 @@ const smtp2goList = computed(() => {
 
 const sendflareList = computed(() => {
 
-  let list = Object.keys(setting.value.sendflareTokens).map(key => {
+  let list = Object.keys(setting.value.sendflareTokens || {}).map(key => {
     return {
       key: key,
       value: setting.value.sendflareTokens[key]
